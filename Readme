@@ -1,0 +1,110 @@
+Вот пример использования **Cucumber** с **Selenide** для UI-тестирования, который демонстрирует параметризацию в сценарии и взаимодействие с веб-приложением:
+
+---
+
+### 1. **Файл `.feature` с параметризацией:**
+
+```gherkin
+Feature: Login functionality
+  As a user
+  I want to login to the application
+  So that I can access protected content
+
+  Scenario Outline: Login with valid credentials
+    Given I am on the login page
+    When I enter username "<username>" and password "<password>"
+    And I click the login button
+    Then I should see the welcome message "<welcomeMessage>"
+
+    Examples:
+      | username | password | welcomeMessage       |
+      | admin    | admin123 | Welcome, Admin User! |
+      | user1    | pass123  | Welcome, User1!      |
+```
+
+---
+
+### 2. **Step Definitions (реализация шагов на Java):**
+
+```java
+import com.codeborne.selenide.SelenideElement;
+import io.cucumber.java.en.*;
+import static com.codeborne.selenide.Selenide.*;
+import static com.codeborne.selenide.Condition.text;
+
+public class LoginSteps {
+
+    // Определение элементов страницы
+    private final SelenideElement usernameField = $("#username");
+    private final SelenideElement passwordField = $("#password");
+    private final SelenideElement loginButton = $("#login-button");
+    private final SelenideElement welcomeMessage = $("#welcome-message");
+
+    @Given("I am on the login page")
+    public void openLoginPage() {
+        open("https://example.com/login"); // Указать URL логина
+    }
+
+    @When("I enter username {string} and password {string}")
+    public void enterCredentials(String username, String password) {
+        usernameField.setValue(username);
+        passwordField.setValue(password);
+    }
+
+    @And("I click the login button")
+    public void clickLoginButton() {
+        loginButton.click();
+    }
+
+    @Then("I should see the welcome message {string}")
+    public void verifyWelcomeMessage(String expectedMessage) {
+        welcomeMessage.shouldHave(text(expectedMessage));
+    }
+}
+```
+
+---
+
+### 3. **Класс запуска тестов (Test Runner):**
+
+```java
+import io.cucumber.junit.Cucumber;
+import io.cucumber.junit.CucumberOptions;
+import org.junit.runner.RunWith;
+
+@RunWith(Cucumber.class)
+@CucumberOptions(
+    features = "src/test/resources/features", // Путь к файлам .feature
+    glue = "com.example.steps",              // Пакет с Step Definitions
+    plugin = {"pretty", "html:target/cucumber-reports.html"},
+    tags = "@ui"
+)
+public class CucumberRunner {
+    // Этот класс остается пустым, его задача - запускать тесты Cucumber
+}
+```
+
+---
+
+### 4. **Пояснения:**
+
+1. **Файл `.feature`:**
+   - Здесь представлен сценарий входа в систему с параметризацией.
+   - Параметры, такие как `<username>`, `<password>` и `<welcomeMessage>`, подставляются из таблицы `Examples`.
+
+2. **Step Definitions:**
+   - Используется **Selenide** для работы с объектами интерфейса (полями ввода, кнопками, сообщениями).
+   - Шаги реализуют действия, такие как ввод текста в поля ввода и проверка текста на странице.
+
+3. **Запуск тестов:**
+   - Файл `CucumberRunner` позволяет запускать сценарии через JUnit.
+   - Результаты можно видеть в консоли и HTML-отчете.
+
+4. **Selenide:**
+   - Реализует для нас простую работу с UI (например, `setValue`, `click`, `shouldHave`).
+   - Автоматически управляет ожиданиями и синхронизацией (например, ожидание появления элементов).
+
+---
+
+**Вывод:**  
+Данный пример показывает, как использовать параметризацию **Cucumber** (через `Scenario Outline`) и выполнять проверки UI с помощью **Selenide**, создавая удобные и читаемые тесты для веб-приложений.
