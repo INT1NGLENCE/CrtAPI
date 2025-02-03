@@ -1,110 +1,196 @@
-Вот пример использования **Cucumber** с **Selenide** для UI-тестирования, который демонстрирует параметризацию в сценарии и взаимодействие с веб-приложением:
 
 ---
 
-### 1. **Файл `.feature` с параметризацией:**
+### Maven
+1. Добавьте зависимость JPA и провайдера (например, Hibernate) в `pom.xml`:
+<dependencies>
+    <!-- JPA API -->
+    <dependency>
+        <groupId>jakarta.persistence</groupId>
+        <artifactId>jakarta.persistence-api</artifactId>
+        <version>3.1.0</version>
+    </dependency>
+    <!-- Hibernate (или другой провайдер) -->
+    <dependency>
+        <groupId>org.hibernate</groupId>
+        <artifactId>hibernate-core</artifactId>
+        <version>6.3.0.Final</version>
+    </dependency>
+</dependencies>
 
-```gherkin
-Feature: Login functionality
-  As a user
-  I want to login to the application
-  So that I can access protected content
 
-  Scenario Outline: Login with valid credentials
-    Given I am on the login page
-    When I enter username "<username>" and password "<password>"
-    And I click the login button
-    Then I should see the welcome message "<welcomeMessage>"
+2. Настройте `persistence.xml` в `src/main/resources/META-INF/`:
+<persistence xmlns="..." version="2.1">
+    <persistence-unit name="my-persistence-unit">
+        <provider>org.hibernate.jpa.HibernatePersistenceProvider</provider>
+        <class>com.example.MyEntity</class>
+        <properties>
+            <property name="javax.persistence.jdbc.url" value="jdbc:h2:mem:testdb"/>
+            <property name="javax.persistence.jdbc.user" value="sa"/>
+            <property name="javax.persistence.jdbc.driver" value="org.h2.Driver"/>
+            <property name="hibernate.dialect" value="org.hibernate.dialect.H2Dialect"/>
+        </properties>
+    </persistence-unit>
+</persistence>
 
-    Examples:
-      | username | password | welcomeMessage       |
-      | admin    | admin123 | Welcome, Admin User! |
-      | user1    | pass123  | Welcome, User1!      |
-```
+
+3. В коде:
+EntityManagerFactory emf = Persistence.createEntityManagerFactory("my-persistence-unit");
+EntityManager em = emf.createEntityManager();
+
 
 ---
 
-### 2. **Step Definitions (реализация шагов на Java):**
+### Gradle
+1. Добавьте зависимости в `build.gradle`:
+dependencies {
+    implementation 'jakarta.persistence:jakarta.persistence-api:3.1.0'
+    implementation 'org.hibernate:hibernate-core:6.3.0.Final'
+    runtimeOnly 'com.h2database:h2:2.2.220'
+}
 
+
+2. Настройте `persistence.xml` (см. пример выше).
+
+3. Используйте `EntityManager` точно так же, как и для Maven.
+
+
+Для проекта по автотестированию можно создать вспомогательный класс (утилитарный слой), который использует `EntityManager` для взаимодействия с базой данных. Этот слой можно использовать для CRUD-операций и верификаций данных в автотестах. Приведу пример вспомогательного класса `DatabaseUtility`, который будет включать несколько удобных методов для работы с базой данных.
+
+---
+
+### Пример вспомогательного класса
 ```java
-import com.codeborne.selenide.SelenideElement;
-import io.cucumber.java.en.*;
-import static com.codeborne.selenide.Selenide.*;
-import static com.codeborne.selenide.Condition.text;
+import jakarta.persistence.EntityManager;
+import jakarta.persistence.EntityManagerFactory;
+import jakarta.persistence.Persistence;
+import jakarta.persistence.TypedQuery;
 
-public class LoginSteps {
+import java.util.List;
 
-    // Определение элементов страницы
-    private final SelenideElement usernameField = $("#username");
-    private final SelenideElement passwordField = $("#password");
-    private final SelenideElement loginButton = $("#login-button");
-    private final SelenideElement welcomeMessage = $("#welcome-message");
+public class DatabaseUtility {
 
-    @Given("I am on the login page")
-    public void openLoginPage() {
-        open("https://example.com/login"); // Указать URL логина
+    private static final String PERSISTENCE_UNIT_NAME = "test-persistence-unit";
+    private static final EntityManagerFactory entityManagerFactory = Persistence.createEntityManagerFactory(PERSISTENCE_UNIT_NAME);
+
+    // Получение EntityManager
+    private static EntityManager getEntityManager() {
+        return entityManagerFactory.createEntityManager();
     }
 
-    @When("I enter username {string} and password {string}")
-    public void enterCredentials(String username, String password) {
-        usernameField.setValue(username);
-        passwordField.setValue(password);
+    // Общий метод для выполнения операций "чтение"
+    public static <T> T findById(Class<T> entityClass, Object primaryKey) {
+        EntityManager em = getEntityManager();
+        try {
+            return em.find(entityClass, primaryKey);
+        } finally {
+            em.close();
+        }
     }
 
-    @And("I click the login button")
-    public void clickLoginButton() {
-        loginButton.click();
+    // Общий метод для сохранения сущности
+    public static <T> void save(T entity) {
+        EntityManager em = getEntityManager();
+        try {
+            em.getTransaction().begin();
+            em.persist(entity);
+            em.getTransaction().commit();
+        } finally {
+            em.close();
+        }
     }
 
-    @Then("I should see the welcome message {string}")
-    public void verifyWelcomeMessage(String expectedMessage) {
-        welcomeMessage.shouldHave(text(expectedMessage));
+    // Общий метод для обновления сущности
+    public static <T> void update(T entity) {
+        EntityManager em = getEntityManager();
+        try {
+            em.getTransaction().begin();
+            em.merge(entity);
+            em.getTransaction().commit();
+        } finally {
+            em.close();
+        }
+    }
+
+    // Общий метод для удаления сущности
+    public static <T> void delete(Class<T> entityClass, Object primaryKey) {
+        EntityManager em = getEntityManager();
+        try {
+            em.getTransaction().begin();
+            T entity = em.find(entityClass, primaryKey);
+            if (entity != null) {
+                em.remove(entity);
+            }
+            em.getTransaction().commit();
+        } finally {
+            em.close();
+        }
+    }
+
+    // Метод для выполнения произвольного JPQL-запроса
+    public static <T> List<T> executeQuery(String jpql, Class<T> resultClass) {
+        EntityManager em = getEntityManager();
+        try {
+            TypedQuery<T> query = em.createQuery(jpql, resultClass);
+            return query.getResultList();
+        } finally {
+            em.close();
+        }
+    }
+
+    // Метод для очистки таблицы (удобно для тестов)
+    public static void clearTable(String tableName) {
+        EntityManager em = getEntityManager();
+        try {
+            em.getTransaction().begin();
+            em.createQuery("DELETE FROM " + tableName).executeUpdate();
+            em.getTransaction().commit();
+        } finally {
+            em.close();
+        }
+    }
+
+    // Graceful shutdown (вызывать в конце или в @AfterClass в ваших тестах)
+    public static void shutdown() {
+        if (entityManagerFactory.isOpen()) {
+            entityManagerFactory.close();
+        }
     }
 }
 ```
 
 ---
 
-### 3. **Класс запуска тестов (Test Runner):**
+### Как это использовать в автотестах
 
+1. **Сохранение данных в базу для подготовки данных теста**:
 ```java
-import io.cucumber.junit.Cucumber;
-import io.cucumber.junit.CucumberOptions;
-import org.junit.runner.RunWith;
+User user = new User("test_user", "test@example.com");
+DatabaseUtility.save(user);
+```
 
-@RunWith(Cucumber.class)
-@CucumberOptions(
-    features = "src/test/resources/features", // Путь к файлам .feature
-    glue = "com.example.steps",              // Пакет с Step Definitions
-    plugin = {"pretty", "html:target/cucumber-reports.html"},
-    tags = "@ui"
-)
-public class CucumberRunner {
-    // Этот класс остается пустым, его задача - запускать тесты Cucumber
-}
+2. **Получение данных из базы для проверок**:
+```java
+User userFromDb = DatabaseUtility.findById(User.class, userId);
+assert userFromDb.getEmail().equals("test@example.com");
+```
+
+3. **Очистка таблицы после теста**:
+```java
+DatabaseUtility.clearTable("User");
+```
+
+4. **Выполнение проверки с запросом (например, подсчет записей)**:
+```java
+long count = DatabaseUtility.executeQuery("SELECT COUNT(u) FROM User u", Long.class).get(0);
+assert count == 0;
+```
+
+5. **Закрытие ресурсов после завершения тестового набора**:
+```java
+DatabaseUtility.shutdown();
 ```
 
 ---
 
-### 4. **Пояснения:**
-
-1. **Файл `.feature`:**
-   - Здесь представлен сценарий входа в систему с параметризацией.
-   - Параметры, такие как `<username>`, `<password>` и `<welcomeMessage>`, подставляются из таблицы `Examples`.
-
-2. **Step Definitions:**
-   - Используется **Selenide** для работы с объектами интерфейса (полями ввода, кнопками, сообщениями).
-   - Шаги реализуют действия, такие как ввод текста в поля ввода и проверка текста на странице.
-
-3. **Запуск тестов:**
-   - Файл `CucumberRunner` позволяет запускать сценарии через JUnit.
-   - Результаты можно видеть в консоли и HTML-отчете.
-
-4. **Selenide:**
-   - Реализует для нас простую работу с UI (например, `setValue`, `click`, `shouldHave`).
-   - Автоматически управляет ожиданиями и синхронизацией (например, ожидание появления элементов).
-
----
-
-**Вывод:**  
-Данный пример показывает, как использовать параметризацию **Cucumber** (через `Scenario Outline`) и выполнять проверки UI с помощью **Selenide**, создавая удобные и читаемые тесты для веб-приложений.
+Этот класс абстрагирует все взаимодействие с `EntityManager`, упрощая работу с базой в тестах. Он делает автотесты более читаемыми и легко поддерживаемыми!
