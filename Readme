@@ -1,196 +1,158 @@
+### Maven:
+<dependency>
+    <groupId>org.dbunit</groupId>
+    <artifactId>dbunit</artifactId>
+    <version>2.7.3</version>
+    <scope>test</scope>
+</dependency>
 
+
+### Gradle:
+testImplementation("org.dbunit:dbunit:2.7.3")
 ---
 
-### Maven
-1. Добавьте зависимость JPA и провайдера (например, Hibernate) в `pom.xml`:
-<dependencies>
-    <!-- JPA API -->
-    <dependency>
-        <groupId>jakarta.persistence</groupId>
-        <artifactId>jakarta.persistence-api</artifactId>
-        <version>3.1.0</version>
-    </dependency>
-    <!-- Hibernate (или другой провайдер) -->
-    <dependency>
-        <groupId>org.hibernate</groupId>
-        <artifactId>hibernate-core</artifactId>
-        <version>6.3.0.Final</version>
-    </dependency>
-</dependencies>
+### 1. XML-файл с тестовыми данными (`test-dataset.xml`):
+<dataset>
+    <users>
+        <id>1</id>
+        <username>john_doe</username>
+        <email>john.doe@example.com</email>
+        <age>25</age>
+    </users>
+    <users>
+        <id>2</id>
+        <username>jane_smith</username>
+        <email>jane.smith@example.com</email>
+        <age>30</age>
+    </users>
+</dataset>
 
-
-2. Настройте `persistence.xml` в `src/main/resources/META-INF/`:
-<persistence xmlns="..." version="2.1">
-    <persistence-unit name="my-persistence-unit">
-        <provider>org.hibernate.jpa.HibernatePersistenceProvider</provider>
-        <class>com.example.MyEntity</class>
-        <properties>
-            <property name="javax.persistence.jdbc.url" value="jdbc:h2:mem:testdb"/>
-            <property name="javax.persistence.jdbc.user" value="sa"/>
-            <property name="javax.persistence.jdbc.driver" value="org.h2.Driver"/>
-            <property name="hibernate.dialect" value="org.hibernate.dialect.H2Dialect"/>
-        </properties>
-    </persistence-unit>
-</persistence>
-
-
-3. В коде:
-EntityManagerFactory emf = Persistence.createEntityManagerFactory("my-persistence-unit");
-EntityManager em = emf.createEntityManager();
-
-
+- В этом датасете таблица называется `users` и содержит несколько тестовых пользователей.
+  
 ---
 
-### Gradle
-1. Добавьте зависимости в `build.gradle`:
-dependencies {
-    implementation 'jakarta.persistence:jakarta.persistence-api:3.1.0'
-    implementation 'org.hibernate:hibernate-core:6.3.0.Final'
-    runtimeOnly 'com.h2database:h2:2.2.220'
+### 2. Настройка и тест с использованием PostgreSQL
+
+import org.dbunit.IDatabaseTester;
+import org.dbunit.JdbcDatabaseTester;
+import org.dbunit.dataset.IDataSet;
+import org.dbunit.dataset.xml.FlatXmlDataSetBuilder;
+import org.dbunit.operation.DatabaseOperation;
+import org.junit.jupiter.api.BeforeEach;
+import org.junit.jupiter.api.Test;
+
+import java.sql.Connection;
+import java.sql.DriverManager;
+import java.sql.PreparedStatement;
+import java.sql.ResultSet;
+
+import static org.junit.jupiter.api.Assertions.assertEquals;
+
+public class DbUnitPostgresTest {
+
+    private IDatabaseTester databaseTester;
+
+    @BeforeEach
+    public void setUp() throws Exception {
+        // Настройка DbUnit с параметрами подключения к PostgreSQL
+        databaseTester = new JdbcDatabaseTester(
+                "org.postgresql.Driver",                                 // JDBC-драйвер для PostgreSQL
+                "jdbc:postgresql://localhost:5432/testdb",              // URL вашего тестового PostgreSQL
+                "testuser",                                             // Тестовый пользователь
+                "testpassword"                                          // Пароль
+        );
+
+        // Подключение XML с тестовыми данными
+        IDataSet dataSet = new FlatXmlDataSetBuilder()
+                .build(getClass().getClassLoader().getResourceAsStream("test-dataset.xml"));
+
+        // Очистка таблицы и вставка данных перед тестами
+        databaseTester.setDataSet(dataSet);
+        databaseTester.setSetUpOperation(DatabaseOperation.CLEAN_INSERT);
+        databaseTester.onSetup();
+    }
+
+    @Test
+    public void testUsersCount() throws Exception {
+        // Подключаемся к PostgreSQL
+        Connection connection = DriverManager.getConnection(
+                "jdbc:postgresql://localhost:5432/testdb", "testuser", "testpassword");
+
+        // Выполняем SQL-запрос, чтобы проверить количество записей в таблице
+        PreparedStatement statement = connection.prepareStatement("SELECT COUNT(*) FROM users");
+        ResultSet resultSet = statement.executeQuery();
+
+        // Проверяем, сколько строк в таблице
+        resultSet.next();
+        int count = resultSet.getInt(1);
+        assertEquals(2, count, "Должно быть 2 записи в таблице users");
+
+        resultSet.close();
+        statement.close();
+        connection.close();
+    }
+
+    @Test
+    public void testUserDataIntegrity() throws Exception {
+        // Проверяем конкретные данные для пользователя из таблицы
+        Connection connection = DriverManager.getConnection(
+                "jdbc:postgresql://localhost:5432/testdb", "testuser", "testpassword");
+
+        PreparedStatement statement = connection.prepareStatement("SELECT * FROM users WHERE id = ?");
+        statement.setInt(1, 1);
+
+        ResultSet resultSet = statement.executeQuery();
+
+        // Проверяем первый тестовый пользователь
+        if (resultSet.next()) {
+            assertEquals("john_doe", resultSet.getString("username"));
+            assertEquals("john.doe@example.com", resultSet.getString("email"));
+            assertEquals(25, resultSet.getInt("age"));
+        }
+
+        resultSet.close();
+        statement.close();
+        connection.close();
+    }
 }
 
 
-2. Настройте `persistence.xml` (см. пример выше).
+---
 
-3. Используйте `EntityManager` точно так же, как и для Maven.
-
-
-Для проекта по автотестированию можно создать вспомогательный класс (утилитарный слой), который использует `EntityManager` для взаимодействия с базой данных. Этот слой можно использовать для CRUD-операций и верификаций данных в автотестах. Приведу пример вспомогательного класса `DatabaseUtility`, который будет включать несколько удобных методов для работы с базой данных.
+### 3. Объяснение:
+1. Структура базы данных:
+   - Таблица `users` содержит столбцы: `id`, `username`, `email`, `age
+2. Параметры PostgreSQL:
+   - Замените `localhost:5432/testdb`, `testuser` и `testpassword` на свои параметры.
+3. XML Dataset:
+   - XML-файл `test-dataset.xml` указывает значения, которые будут вставлены в таблицу `users`.
+4. DbUnit операции:
+   - `CLEAN_INSERT`: очищает таблицу (удаляет все записи) и загружает новые данные.
+5. Тесты:
+   - Первый тест проверяет общее количество записей в таблице.
+   - Второй тест проверяет целостность записи в таблице (по значениям).
 
 ---
 
-### Пример вспомогательного класса
-```java
-import jakarta.persistence.EntityManager;
-import jakarta.persistence.EntityManagerFactory;
-import jakarta.persistence.Persistence;
-import jakarta.persistence.TypedQuery;
-
-import java.util.List;
-
-public class DatabaseUtility {
-
-    private static final String PERSISTENCE_UNIT_NAME = "test-persistence-unit";
-    private static final EntityManagerFactory entityManagerFactory = Persistence.createEntityManagerFactory(PERSISTENCE_UNIT_NAME);
-
-    // Получение EntityManager
-    private static EntityManager getEntityManager() {
-        return entityManagerFactory.createEntityManager();
-    }
-
-    // Общий метод для выполнения операций "чтение"
-    public static <T> T findById(Class<T> entityClass, Object primaryKey) {
-        EntityManager em = getEntityManager();
-        try {
-            return em.find(entityClass, primaryKey);
-        } finally {
-            em.close();
-        }
-    }
-
-    // Общий метод для сохранения сущности
-    public static <T> void save(T entity) {
-        EntityManager em = getEntityManager();
-        try {
-            em.getTransaction().begin();
-            em.persist(entity);
-            em.getTransaction().commit();
-        } finally {
-            em.close();
-        }
-    }
-
-    // Общий метод для обновления сущности
-    public static <T> void update(T entity) {
-        EntityManager em = getEntityManager();
-        try {
-            em.getTransaction().begin();
-            em.merge(entity);
-            em.getTransaction().commit();
-        } finally {
-            em.close();
-        }
-    }
-
-    // Общий метод для удаления сущности
-    public static <T> void delete(Class<T> entityClass, Object primaryKey) {
-        EntityManager em = getEntityManager();
-        try {
-            em.getTransaction().begin();
-            T entity = em.find(entityClass, primaryKey);
-            if (entity != null) {
-                em.remove(entity);
-            }
-            em.getTransaction().commit();
-        } finally {
-            em.close();
-        }
-    }
-
-    // Метод для выполнения произвольного JPQL-запроса
-    public static <T> List<T> executeQuery(String jpql, Class<T> resultClass) {
-        EntityManager em = getEntityManager();
-        try {
-            TypedQuery<T> query = em.createQuery(jpql, resultClass);
-            return query.getResultList();
-        } finally {
-            em.close();
-        }
-    }
-
-    // Метод для очистки таблицы (удобно для тестов)
-    public static void clearTable(String tableName) {
-        EntityManager em = getEntityManager();
-        try {
-            em.getTransaction().begin();
-            em.createQuery("DELETE FROM " + tableName).executeUpdate();
-            em.getTransaction().commit();
-        } finally {
-            em.close();
-        }
-    }
-
-    // Graceful shutdown (вызывать в конце или в @AfterClass в ваших тестах)
-    public static void shutdown() {
-        if (entityManagerFactory.isOpen()) {
-            entityManagerFactory.close();
-        }
-    }
-}
-```
+### 4. Как подготовить PostgreSQL для тестирования:
+1. Создайте новую базу данных `testdb` (или любую другую).
+2. Создайте пользователя `testuser` с паролем `testpassword` и выдайте права на базу:
+   
+   CREATE USER testuser WITH PASSWORD 'testpassword';
+   CREATE DATABASE testdb;
+   GRANT ALL PRIVILEGES ON DATABASE testdb TO testuser;
+   
+3. Создайте таблицу `users` с нужной структурой:
+   
+   CREATE TABLE users (
+       id SERIAL PRIMARY KEY,
+       username VARCHAR(50) NOT NULL,
+       email VARCHAR(100) NOT NULL,
+       age INT NOT NULL
+   );
+   
 
 ---
 
-### Как это использовать в автотестах
-
-1. **Сохранение данных в базу для подготовки данных теста**:
-```java
-User user = new User("test_user", "test@example.com");
-DatabaseUtility.save(user);
-```
-
-2. **Получение данных из базы для проверок**:
-```java
-User userFromDb = DatabaseUtility.findById(User.class, userId);
-assert userFromDb.getEmail().equals("test@example.com");
-```
-
-3. **Очистка таблицы после теста**:
-```java
-DatabaseUtility.clearTable("User");
-```
-
-4. **Выполнение проверки с запросом (например, подсчет записей)**:
-```java
-long count = DatabaseUtility.executeQuery("SELECT COUNT(u) FROM User u", Long.class).get(0);
-assert count == 0;
-```
-
-5. **Закрытие ресурсов после завершения тестового набора**:
-```java
-DatabaseUtility.shutdown();
-```
-
----
-
-Этот класс абстрагирует все взаимодействие с `EntityManager`, упрощая работу с базой в тестах. Он делает автотесты более читаемыми и легко поддерживаемыми!
+### Итог:
+Этот пример показывает, как настроить и использовать DbUnit вместе с PostgreSQL для тестирования реального взаимодействия с базой данных. Вы можете легко адаптировать данный код и датасеты для вашего проекта.
