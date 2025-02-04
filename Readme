@@ -1,158 +1,151 @@
-### Maven:
+Для Maven:
 <dependency>
-    <groupId>org.dbunit</groupId>
-    <artifactId>dbunit</artifactId>
-    <version>2.7.3</version>
+    <groupId>org.springframework.boot</groupId>
+    <artifactId>spring-boot-starter-test</artifactId>
+    <scope>test</scope>
+    <exclusions>
+        <exclusion>
+            <groupId>org.junit.vintage</groupId>
+            <artifactId>junit-vintage-engine</artifactId>
+        </exclusion>
+    </exclusions>
+</dependency>
+<dependency>
+    <groupId>org.springframework.boot</groupId>
+    <artifactId>spring-boot-starter-data-jpa</artifactId>
+</dependency>
+<dependency>
+    <groupId>com.h2database</groupId>
+    <artifactId>h2</artifactId>
     <scope>test</scope>
 </dependency>
 
 
-### Gradle:
-testImplementation("org.dbunit:dbunit:2.7.3")
----
+Для Gradle:
+dependencies {
+    testImplementation 'org.springframework.boot:spring-boot-starter-test' {
+        exclude group: 'org.junit.vintage', module: 'junit-vintage-engine'
+    }
+    implementation 'org.springframework.boot:spring-boot-starter-data-jpa'
+    testImplementation 'com.h2database:h2'
+}
 
-### 1. XML-файл с тестовыми данными (`test-dataset.xml`):
-<dataset>
-    <users>
-        <id>1</id>
-        <username>john_doe</username>
-        <email>john.doe@example.com</email>
-        <age>25</age>
-    </users>
-    <users>
-        <id>2</id>
-        <username>jane_smith</username>
-        <email>jane.smith@example.com</email>
-        <age>30</age>
-    </users>
-</dataset>
 
-- В этом датасете таблица называется `users` и содержит несколько тестовых пользователей.
-  
----
+Предположим, что у нас есть сущность `User`, для которой мы хотим протестировать CRUD-операции с использованием нашего JPA-репозитория.
 
-### 2. Настройка и тест с использованием PostgreSQL
+### Пример сущности `User`:
+import jakarta.persistence.Entity;
+import jakarta.persistence.GeneratedValue;
+import jakarta.persistence.GenerationType;
+import jakarta.persistence.Id;
 
-import org.dbunit.IDatabaseTester;
-import org.dbunit.JdbcDatabaseTester;
-import org.dbunit.dataset.IDataSet;
-import org.dbunit.dataset.xml.FlatXmlDataSetBuilder;
-import org.dbunit.operation.DatabaseOperation;
-import org.junit.jupiter.api.BeforeEach;
-import org.junit.jupiter.api.Test;
+@Entity
+public class User {
+    @Id
+    @GeneratedValue(strategy = GenerationType.IDENTITY)
+    private Long id;
+    private String name;
+    private String email;
 
-import java.sql.Connection;
-import java.sql.DriverManager;
-import java.sql.PreparedStatement;
-import java.sql.ResultSet;
-
-import static org.junit.jupiter.api.Assertions.assertEquals;
-
-public class DbUnitPostgresTest {
-
-    private IDatabaseTester databaseTester;
-
-    @BeforeEach
-    public void setUp() throws Exception {
-        // Настройка DbUnit с параметрами подключения к PostgreSQL
-        databaseTester = new JdbcDatabaseTester(
-                "org.postgresql.Driver",                                 // JDBC-драйвер для PostgreSQL
-                "jdbc:postgresql://localhost:5432/testdb",              // URL вашего тестового PostgreSQL
-                "testuser",                                             // Тестовый пользователь
-                "testpassword"                                          // Пароль
-        );
-
-        // Подключение XML с тестовыми данными
-        IDataSet dataSet = new FlatXmlDataSetBuilder()
-                .build(getClass().getClassLoader().getResourceAsStream("test-dataset.xml"));
-
-        // Очистка таблицы и вставка данных перед тестами
-        databaseTester.setDataSet(dataSet);
-        databaseTester.setSetUpOperation(DatabaseOperation.CLEAN_INSERT);
-        databaseTester.onSetup();
+    // Конструкторы, геттеры и сеттеры
+    public User() {}
+    public User(String name, String email) {
+        this.name = name;
+        this.email = email;
     }
 
-    @Test
-    public void testUsersCount() throws Exception {
-        // Подключаемся к PostgreSQL
-        Connection connection = DriverManager.getConnection(
-                "jdbc:postgresql://localhost:5432/testdb", "testuser", "testpassword");
-
-        // Выполняем SQL-запрос, чтобы проверить количество записей в таблице
-        PreparedStatement statement = connection.prepareStatement("SELECT COUNT(*) FROM users");
-        ResultSet resultSet = statement.executeQuery();
-
-        // Проверяем, сколько строк в таблице
-        resultSet.next();
-        int count = resultSet.getInt(1);
-        assertEquals(2, count, "Должно быть 2 записи в таблице users");
-
-        resultSet.close();
-        statement.close();
-        connection.close();
+    public Long getId() {
+        return id;
     }
 
-    @Test
-    public void testUserDataIntegrity() throws Exception {
-        // Проверяем конкретные данные для пользователя из таблицы
-        Connection connection = DriverManager.getConnection(
-                "jdbc:postgresql://localhost:5432/testdb", "testuser", "testpassword");
+    public void setId(Long id) {
+        this.id = id;
+    }
 
-        PreparedStatement statement = connection.prepareStatement("SELECT * FROM users WHERE id = ?");
-        statement.setInt(1, 1);
+    public String getName() {
+        return name;
+    }
 
-        ResultSet resultSet = statement.executeQuery();
+    public void setName(String name) {
+        this.name = name;
+    }
 
-        // Проверяем первый тестовый пользователь
-        if (resultSet.next()) {
-            assertEquals("john_doe", resultSet.getString("username"));
-            assertEquals("john.doe@example.com", resultSet.getString("email"));
-            assertEquals(25, resultSet.getInt("age"));
-        }
+    public String getEmail() {
+        return email;
+    }
 
-        resultSet.close();
-        statement.close();
-        connection.close();
+    public void setEmail(String email) {
+        this.email = email;
     }
 }
 
 
----
+### Репозиторий:
+import org.springframework.data.jpa.repository.JpaRepository;
 
-### 3. Объяснение:
-1. Структура базы данных:
-   - Таблица `users` содержит столбцы: `id`, `username`, `email`, `age
-2. Параметры PostgreSQL:
-   - Замените `localhost:5432/testdb`, `testuser` и `testpassword` на свои параметры.
-3. XML Dataset:
-   - XML-файл `test-dataset.xml` указывает значения, которые будут вставлены в таблицу `users`.
-4. DbUnit операции:
-   - `CLEAN_INSERT`: очищает таблицу (удаляет все записи) и загружает новые данные.
-5. Тесты:
-   - Первый тест проверяет общее количество записей в таблице.
-   - Второй тест проверяет целостность записи в таблице (по значениям).
+public interface UserRepository extends JpaRepository<User, Long> {
+    // Дополнительные запросы (если нужны)
+    User findByEmail(String email);
+}
 
----
 
-### 4. Как подготовить PostgreSQL для тестирования:
-1. Создайте новую базу данных `testdb` (или любую другую).
-2. Создайте пользователя `testuser` с паролем `testpassword` и выдайте права на базу:
-   
-   CREATE USER testuser WITH PASSWORD 'testpassword';
-   CREATE DATABASE testdb;
-   GRANT ALL PRIVILEGES ON DATABASE testdb TO testuser;
-   
-3. Создайте таблицу `users` с нужной структурой:
-   
-   CREATE TABLE users (
-       id SERIAL PRIMARY KEY,
-       username VARCHAR(50) NOT NULL,
-       email VARCHAR(100) NOT NULL,
-       age INT NOT NULL
-   );
-   
+### Пример JPA-теста:
+Теперь давайте создадим тест с использованием аннотации `@DataJpaTest` для тестирования взаимодействий с репозиторием. 
 
----
+import org.junit.jupiter.api.Test;
+import org.springframework.beans.factory.annotation.Autowired;
+import org.springframework.boot.test.autoconfigure.orm.jpa.DataJpaTest;
+import static org.assertj.core.api.Assertions.assertThat;
 
-### Итог:
-Этот пример показывает, как настроить и использовать DbUnit вместе с PostgreSQL для тестирования реального взаимодействия с базой данных. Вы можете легко адаптировать данный код и датасеты для вашего проекта.
+import java.util.Optional;
+
+@DataJpaTest
+class UserRepositoryTest {
+
+    @Autowired
+    private UserRepository userRepository;
+
+    @Test
+    void testSaveAndFindUser() {
+        // Создаем нового пользователя
+        User user = new User("John Doe", "john.doe@example.com");
+        User savedUser = userRepository.save(user);
+
+        // Проверяем, что пользователь сохранен
+        assertThat(savedUser.getId()).isNotNull();
+        assertThat(savedUser.getName()).isEqualTo("John Doe");
+
+        // Ищем пользователя по ID
+        Optional<User> foundUser = userRepository.findById(savedUser.getId());
+        assertThat(foundUser).isPresent();
+        assertThat(foundUser.get().getEmail()).isEqualTo("john.doe@example.com");
+    }
+
+    @Test
+    void testFindByEmail() {
+        // Сохраняем пользователя
+        User user = new User("Jane Roe", "jane.roe@example.com");
+        userRepository.save(user);
+
+        // Ищем пользователя по email
+        User foundUser = userRepository.findByEmail("jane.roe@example.com");
+
+        assertThat(foundUser).isNotNull();
+        assertThat(foundUser.getName()).isEqualTo("Jane Roe");
+    }
+
+    @Test
+    void testDeleteUser() {
+        // Сохраняем пользователя
+        User user = new User("Alex Smith", "alex.smith@example.com");
+        User savedUser = userRepository.save(user);
+
+        // Удаляем пользователя
+        userRepository.delete(savedUser);
+
+        // Проверяем, что пользователь удален
+        Optional<User> deletedUser = userRepository.findById(savedUser.getId());
+        assertThat(deletedUser).isEmpty();
+    }
+}
+
