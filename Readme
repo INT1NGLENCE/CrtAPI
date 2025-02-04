@@ -1,151 +1,110 @@
-Для Maven:
+Вот краткий пример подключения TestContainers для Maven и Gradle:
+
+### Maven
 <dependency>
-    <groupId>org.springframework.boot</groupId>
-    <artifactId>spring-boot-starter-test</artifactId>
-    <scope>test</scope>
-    <exclusions>
-        <exclusion>
-            <groupId>org.junit.vintage</groupId>
-            <artifactId>junit-vintage-engine</artifactId>
-        </exclusion>
-    </exclusions>
-</dependency>
-<dependency>
-    <groupId>org.springframework.boot</groupId>
-    <artifactId>spring-boot-starter-data-jpa</artifactId>
-</dependency>
-<dependency>
-    <groupId>com.h2database</groupId>
-    <artifactId>h2</artifactId>
+    <groupId>org.testcontainers</groupId>
+    <artifactId>testcontainers</artifactId>
+    <version>1.19.0</version>
     <scope>test</scope>
 </dependency>
 
 
-Для Gradle:
-dependencies {
-    testImplementation 'org.springframework.boot:spring-boot-starter-test' {
-        exclude group: 'org.junit.vintage', module: 'junit-vintage-engine'
-    }
-    implementation 'org.springframework.boot:spring-boot-starter-data-jpa'
-    testImplementation 'com.h2database:h2'
-}
+Если нужна поддержка конкретной базы данных (например, PostgreSQL):
+<dependency>
+    <groupId>org.testcontainers</groupId>
+    <artifactId>postgresql</artifactId>
+    <version>1.19.0</version>
+    <scope>test</scope>
+</dependency>
 
 
-Предположим, что у нас есть сущность `User`, для которой мы хотим протестировать CRUD-операции с использованием нашего JPA-репозитория.
-
-### Пример сущности `User`:
-import jakarta.persistence.Entity;
-import jakarta.persistence.GeneratedValue;
-import jakarta.persistence.GenerationType;
-import jakarta.persistence.Id;
-
-@Entity
-public class User {
-    @Id
-    @GeneratedValue(strategy = GenerationType.IDENTITY)
-    private Long id;
-    private String name;
-    private String email;
-
-    // Конструкторы, геттеры и сеттеры
-    public User() {}
-    public User(String name, String email) {
-        this.name = name;
-        this.email = email;
-    }
-
-    public Long getId() {
-        return id;
-    }
-
-    public void setId(Long id) {
-        this.id = id;
-    }
-
-    public String getName() {
-        return name;
-    }
-
-    public void setName(String name) {
-        this.name = name;
-    }
-
-    public String getEmail() {
-        return email;
-    }
-
-    public void setEmail(String email) {
-        this.email = email;
-    }
-}
+### Gradle
+testImplementation 'org.testcontainers:testcontainers:1.19.0'
 
 
-### Репозиторий:
-import org.springframework.data.jpa.repository.JpaRepository;
+Для конкретной базы данных (например, PostgreSQL):
+testImplementation 'org.testcontainers:postgresql:1.19.0'
 
-public interface UserRepository extends JpaRepository<User, Long> {
-    // Дополнительные запросы (если нужны)
-    User findByEmail(String email);
-}
-
-
-### Пример JPA-теста:
-Теперь давайте создадим тест с использованием аннотации `@DataJpaTest` для тестирования взаимодействий с репозиторием. 
+Вот пример использования TestContainers для поднятия базы данных (например, PostgreSQL) перед каждым тестом в проекте, предназначенном для автоматизированного тестирования:
 
 import org.junit.jupiter.api.Test;
-import org.springframework.beans.factory.annotation.Autowired;
-import org.springframework.boot.test.autoconfigure.orm.jpa.DataJpaTest;
-import static org.assertj.core.api.Assertions.assertThat;
+import org.junit.jupiter.api.BeforeEach;
+import org.junit.jupiter.api.AfterEach;
+import org.testcontainers.containers.PostgreSQLContainer;
+import org.testcontainers.junit.jupiter.Container;
+import org.testcontainers.junit.jupiter.Testcontainers;
 
-import java.util.Optional;
+import javax.sql.DataSource;
+import org.apache.commons.dbcp2.BasicDataSource;
 
-@DataJpaTest
-class UserRepositoryTest {
+import java.sql.Connection;
+import java.sql.ResultSet;
+import java.sql.Statement;
 
-    @Autowired
-    private UserRepository userRepository;
+import static org.junit.jupiter.api.Assertions.assertEquals;
 
-    @Test
-    void testSaveAndFindUser() {
-        // Создаем нового пользователя
-        User user = new User("John Doe", "john.doe@example.com");
-        User savedUser = userRepository.save(user);
+@Testcontainers
+public class DatabaseIntegrationTest {
 
-        // Проверяем, что пользователь сохранен
-        assertThat(savedUser.getId()).isNotNull();
-        assertThat(savedUser.getName()).isEqualTo("John Doe");
+    // Поднимаем PostgreSQL контейнер
+    @Container
+    private final PostgreSQLContainer<?> postgresContainer = new PostgreSQLContainer<>("postgres:15.1")
+            .withDatabaseName("testdb")
+            .withUsername("testuser")
+            .withPassword("testpass");
 
-        // Ищем пользователя по ID
-        Optional<User> foundUser = userRepository.findById(savedUser.getId());
-        assertThat(foundUser).isPresent();
-        assertThat(foundUser.get().getEmail()).isEqualTo("john.doe@example.com");
+    private DataSource dataSource;
+
+    @BeforeEach
+    void setUp() {
+        // Настраиваем DataSource для подключения к тестовой БД
+        BasicDataSource ds = new BasicDataSource();
+        ds.setUrl(postgresContainer.getJdbcUrl());
+        ds.setUsername(postgresContainer.getUsername());
+        ds.setPassword(postgresContainer.getPassword());
+        this.dataSource = ds;
+
+        // Инициализация схемы и данных перед каждым тестом
+        try (Connection connection = dataSource.getConnection();
+             Statement stmt = connection.createStatement()) {
+            stmt.execute("CREATE TABLE IF NOT EXISTS test_table (id SERIAL PRIMARY KEY, value TEXT)");
+            stmt.execute("INSERT INTO test_table (value) VALUES ('test_value')");
+        } catch (Exception e) {
+            throw new RuntimeException("Failed to set up the database", e);
+        }
+    }
+
+    @AfterEach
+    void tearDown() {
+        // Очистка таблиц после каждого теста
+        try (Connection connection = dataSource.getConnection();
+             Statement stmt = connection.createStatement()) {
+            stmt.execute("DROP TABLE IF EXISTS test_table");
+        } catch (Exception e) {
+            throw new RuntimeException("Failed to clean up the database", e);
+        }
     }
 
     @Test
-    void testFindByEmail() {
-        // Сохраняем пользователя
-        User user = new User("Jane Roe", "jane.roe@example.com");
-        userRepository.save(user);
+    void testDatabaseConnection() throws Exception {
+        try (Connection connection = dataSource.getConnection();
+             Statement stmt = connection.createStatement();
+             ResultSet rs = stmt.executeQuery("SELECT COUNT(*) FROM test_table")) {
 
-        // Ищем пользователя по email
-        User foundUser = userRepository.findByEmail("jane.roe@example.com");
-
-        assertThat(foundUser).isNotNull();
-        assertThat(foundUser.getName()).isEqualTo("Jane Roe");
-    }
-
-    @Test
-    void testDeleteUser() {
-        // Сохраняем пользователя
-        User user = new User("Alex Smith", "alex.smith@example.com");
-        User savedUser = userRepository.save(user);
-
-        // Удаляем пользователя
-        userRepository.delete(savedUser);
-
-        // Проверяем, что пользователь удален
-        Optional<User> deletedUser = userRepository.findById(savedUser.getId());
-        assertThat(deletedUser).isEmpty();
+            rs.next();
+            int count = rs.getInt(1);
+            assertEquals(1, count, "Table should contain exactly one row");
+        }
     }
 }
+
+
+### Пояснение:
+1. Поднимаем контейнер базы данных: Используем `PostgreSQLContainer` из TestContainers для PostgreSQL.
+2. Инициализация перед тестом: В методе `@BeforeEach` создаем таблицы и наполняем их тестовыми данными.
+3. Очистка после теста: В методе `@AfterEach` очищаем тестовую базу данных.
+4. Тесты: В методах с аннотацией `@Test` взаимодействуем с поднятой базой, используя стандартные JDBC-функции или ORM.
+
+### Преимущество:
+Каждый тест запускается в изолированном окружении на новой базе данных, что исключает влияние состояния других тестов. Это особенно важно для надежности тестирования.
 
