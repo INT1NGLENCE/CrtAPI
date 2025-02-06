@@ -1,110 +1,111 @@
-Вот краткий пример подключения TestContainers для Maven и Gradle:
+<?xml version="1.0" encoding="UTF-8"?>
+<project xmlns="http://maven.apache.org/POM/4.0.0"
+         xmlns:xsi="http://www.w3.org/2001/XMLSchema-instance"
+         xsi:schemaLocation="http://maven.apache.org/POM/4.0.0 http://maven.apache.org/xsd/maven-4.0.0.xsd">
+    <modelVersion>4.0.0</modelVersion>
 
-### Maven
-<dependency>
-    <groupId>org.testcontainers</groupId>
-    <artifactId>testcontainers</artifactId>
-    <version>1.19.0</version>
-    <scope>test</scope>
-</dependency>
+    <groupId>org.example</groupId>
+    <artifactId>exampleATF</artifactId>
+    <version>1.0-SNAPSHOT</version>
 
+    <properties>
+        <java.version>17</java.version>
+        <maven.compiler.source>17</maven.compiler.source>
+        <maven.compiler.target>17</maven.compiler.target>
+        <project.build.sourceEncoding>UTF-8</project.build.sourceEncoding>
+    </properties>
 
-Если нужна поддержка конкретной базы данных (например, PostgreSQL):
-<dependency>
-    <groupId>org.testcontainers</groupId>
-    <artifactId>postgresql</artifactId>
-    <version>1.19.0</version>
-    <scope>test</scope>
-</dependency>
+    <dependencies>
+        <!-- Spring Boot dependencies -->
+        <dependency>
+            <groupId>org.springframework.boot</groupId>
+            <artifactId>spring-boot-starter</artifactId>
+        </dependency>
+        <dependency>
+            <groupId>org.springframework.boot</groupId>
+            <artifactId>spring-boot-starter-web</artifactId>
+        </dependency>
 
+        <!-- OpenAPI and Swagger dependencies -->
+        <dependency>
+            <groupId>org.springdoc</groupId>
+            <artifactId>springdoc-openapi-ui</artifactId>
+            <version>1.7.0</version>
+        </dependency>
+        <dependency>
+            <groupId>org.springdoc</groupId>
+            <artifactId>springdoc-openapi-data-rest</artifactId>
+            <version>1.7.0</version>
+        </dependency>
 
-### Gradle
-testImplementation 'org.testcontainers:testcontainers:1.19.0'
+        <!-- RestAssured for API testing -->
+        <dependency>
+            <groupId>io.rest-assured</groupId>
+            <artifactId>rest-assured</artifactId>
+            <version>5.3.0</version>
+        </dependency>
 
+        <!-- WireMock for mocking services -->
+        <dependency>
+            <groupId>com.github.tomakehurst</groupId>
+            <artifactId>wiremock</artifactId>
+            <version>3.1.0</version>
+            <scope>test</scope>
+        </dependency>
 
-Для конкретной базы данных (например, PostgreSQL):
-testImplementation 'org.testcontainers:postgresql:1.19.0'
+        <!-- Selenide for UI testing -->
+        <dependency>
+            <groupId>com.codeborne</groupId>
+            <artifactId>selenide</artifactId>
+            <version>6.1.1</version>
+        </dependency>
 
-Вот пример использования TestContainers для поднятия базы данных (например, PostgreSQL) перед каждым тестом в проекте, предназначенном для автоматизированного тестирования:
+        <!-- Cucumber for BDD testing -->
+        <dependency>
+            <groupId>io.cucumber</groupId>
+            <artifactId>cucumber-java</artifactId>
+            <version>7.14.0</version>
+        </dependency>
+        <dependency>
+            <groupId>io.cucumber</groupId>
+            <artifactId>cucumber-spring</artifactId>
+            <version>7.14.0</version>
+        </dependency>
+        <dependency>
+            <groupId>io.cucumber</groupId>
+            <artifactId>cucumber-junit</artifactId>
+            <version>7.14.0</version>
+        </dependency>
 
-import org.junit.jupiter.api.Test;
-import org.junit.jupiter.api.BeforeEach;
-import org.junit.jupiter.api.AfterEach;
-import org.testcontainers.containers.PostgreSQLContainer;
-import org.testcontainers.junit.jupiter.Container;
-import org.testcontainers.junit.jupiter.Testcontainers;
+        <!-- JUnit 5 for testing -->
+        <dependency>
+            <groupId>org.junit.jupiter</groupId>
+            <artifactId>junit-jupiter</artifactId>
+            <version>5.10.0</version>
+            <scope>test</scope>
+        </dependency>
+    </dependencies>
 
-import javax.sql.DataSource;
-import org.apache.commons.dbcp2.BasicDataSource;
+    <build>
+        <plugins>
+            <!-- Maven Compiler Plugin -->
+            <plugin>
+                <groupId>org.apache.maven.plugins</groupId>
+                <artifactId>maven-compiler-plugin</artifactId>
+                <version>3.11.0</version>
+                <configuration>
+                    <source>${java.version}</source>
+                    <target>${java.version}</target>
+                </configuration>
+            </plugin>
 
-import java.sql.Connection;
-import java.sql.ResultSet;
-import java.sql.Statement;
+            <!-- Spring Boot Maven Plugin -->
+            <plugin>
+                <groupId>org.springframework.boot</groupId>
+                <artifactId>spring-boot-maven-plugin</artifactId>
+            </plugin>
+        </plugins>
+    </build>
+</project>
 
-import static org.junit.jupiter.api.Assertions.assertEquals;
-
-@Testcontainers
-public class DatabaseIntegrationTest {
-
-    // Поднимаем PostgreSQL контейнер
-    @Container
-    private final PostgreSQLContainer<?> postgresContainer = new PostgreSQLContainer<>("postgres:15.1")
-            .withDatabaseName("testdb")
-            .withUsername("testuser")
-            .withPassword("testpass");
-
-    private DataSource dataSource;
-
-    @BeforeEach
-    void setUp() {
-        // Настраиваем DataSource для подключения к тестовой БД
-        BasicDataSource ds = new BasicDataSource();
-        ds.setUrl(postgresContainer.getJdbcUrl());
-        ds.setUsername(postgresContainer.getUsername());
-        ds.setPassword(postgresContainer.getPassword());
-        this.dataSource = ds;
-
-        // Инициализация схемы и данных перед каждым тестом
-        try (Connection connection = dataSource.getConnection();
-             Statement stmt = connection.createStatement()) {
-            stmt.execute("CREATE TABLE IF NOT EXISTS test_table (id SERIAL PRIMARY KEY, value TEXT)");
-            stmt.execute("INSERT INTO test_table (value) VALUES ('test_value')");
-        } catch (Exception e) {
-            throw new RuntimeException("Failed to set up the database", e);
-        }
-    }
-
-    @AfterEach
-    void tearDown() {
-        // Очистка таблиц после каждого теста
-        try (Connection connection = dataSource.getConnection();
-             Statement stmt = connection.createStatement()) {
-            stmt.execute("DROP TABLE IF EXISTS test_table");
-        } catch (Exception e) {
-            throw new RuntimeException("Failed to clean up the database", e);
-        }
-    }
-
-    @Test
-    void testDatabaseConnection() throws Exception {
-        try (Connection connection = dataSource.getConnection();
-             Statement stmt = connection.createStatement();
-             ResultSet rs = stmt.executeQuery("SELECT COUNT(*) FROM test_table")) {
-
-            rs.next();
-            int count = rs.getInt(1);
-            assertEquals(1, count, "Table should contain exactly one row");
-        }
-    }
-}
-
-
-### Пояснение:
-1. Поднимаем контейнер базы данных: Используем `PostgreSQLContainer` из TestContainers для PostgreSQL.
-2. Инициализация перед тестом: В методе `@BeforeEach` создаем таблицы и наполняем их тестовыми данными.
-3. Очистка после теста: В методе `@AfterEach` очищаем тестовую базу данных.
-4. Тесты: В методах с аннотацией `@Test` взаимодействуем с поднятой базой, используя стандартные JDBC-функции или ORM.
-
-### Преимущество:
-Каждый тест запускается в изолированном окружении на новой базе данных, что исключает влияние состояния других тестов. Это особенно важно для надежности тестирования.
 
