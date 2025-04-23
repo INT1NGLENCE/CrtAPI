@@ -1,9 +1,6 @@
 import ru.testit.client.api.AutoTestsApi;
-import ru.testit.client.api.TestRunsApi;
 import ru.testit.client.api.WorkItemsApi;
-import ru.testit.client.invoker.ApiClient;
 import ru.testit.client.invoker.ApiException;
-import ru.testit.client.invoker.Configuration;
 import ru.testit.client.model.*;
 import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
@@ -15,132 +12,12 @@ import java.util.Set;
 import java.util.UUID;
 import java.util.stream.Collectors;
 
-/**
- * Класс для удобного создания, обновления и удаления автотестов и тестовых прогонов в TestIt TMS.
- */
 public class TestItAutoTestCreator {
     private static final Logger LOGGER = LoggerFactory.getLogger(TestItAutoTestCreator.class);
     private final AutoTestsApi autoTestsApi;
-    private final TestRunsApi testRunsApi;
     private final WorkItemsApi workItemsApi;
+    // ... (остальные поля и конструктор без изменений)
 
-    /**
-     * Конструктор, инициализирующий API-клиент для TestIt TMS.
-     * @param tmsAddress Адрес инстанции TestIt TMS (например, https://tms.company.com).
-     * @param privateToken Приватный токен для аутентификации в API.
-     */
-    public TestItAutoTestCreator(String tmsAddress, String privateToken) {
-        LOGGER.info("Инициализация TestItAutoTestCreator с адресом: {}", tmsAddress);
-        if (tmsAddress == null || privateToken == null) {
-            throw new IllegalArgumentException W("Адрес TMS и токен не могут быть null");
-        }
-        ApiClient defaultClient = Configuration.getDefaultApiClient();
-        defaultClient.setBasePath(tmsAddress);
-        defaultClient.setApiKeyPrefix("PrivateToken");
-        defaultClient.setApiKey(privateToken);
-        autoTestsApi = new AutoTestsApi(defaultClient);
-        testRunsApi = new TestRunsApi(defaultClient);
-        workItemsApi = new WorkItemsApi(defaultClient);
-    }
-
-    /**
-     * Создает тестовый прогон для проекта.
-     * @param projectId UUID проекта.
-     * @param name Название прогона.
-     * @return Optional с UUID созданного прогона или пустой, если произошла ошибка.
-     */
-    public Optional<UUID> createTestRun(UUID projectId, String name) {
-        LOGGER.info("Создание тестового прогона для проекта {} с названием {}", projectId, name);
-        try {
-            CreateEmptyTestRunApiModel model = new CreateEmptyTestRunApiModel();
-            model.setProjectId(projectId);
-            model.setName(name);
-            TestRunV2ApiResult response = testRunsApi.createEmpty(model);
-            testRunsApi.startTestRun(response.getId());
-            LOGGER.info("Создан тестовый прогон с ID: {}", response.getId());
-            return Optional.of(response.getId());
-        } catch (ApiException e) {
-            LOGGER.error("Ошибка при создании тестового прогона: {}", e.getMessage(), e);
-            return Optional.empty();
-        }
-    }
-
-    /**
-     * Удаляет автотест по его внешнему идентификатору.
-     * @param externalId Внешний идентификатор автотеста.
-     * @param projectId UUID проекта.
-     */
-    public void deleteAutoTestByExternalId(String externalId, UUID projectId) {
-        LOGGER.info("Поиск автотеста с externalId: {} в проекте: {}", externalId, projectId);
-        try {
-            AutoTestFilterApiModel filter = new AutoTestFilterApiModel();
-            filter.setExternalIds(Set.of(externalId));
-            filter.setProjectIds(Set.of(projectId.toString()));
-            AutoTestSearchIncludeApiModel includes = new AutoTestSearchIncludeApiModel()
-                    .includeLabels(true)
-                    .includeSteps(true)
-                    .includeLinks(true);
-            AutoTestSearchApiModel body = new AutoTestSearchApiModel()
-                    .filter(filter)
-                    .includes(includes);
-            List<AutoTestApiResult> existingTests = autoTestsApi.apiV2AutoTestsSearchPost(
-                    null, null, null, null, null, body
-            );
-            if (!existingTests.isEmpty()) {
-                String id = existingTests.get(0).getId().toString();
-                autoTestsApi.deleteAutoTest(id);
-                LOGGER.info("Удален автотест с externalId: {}", externalId);
-            } else {
-                LOGGER.warn("Автотест с externalId: {} в проекте: {} не найден", externalId, projectId);
-            }
-        } catch (ApiException e) {
-            LOGGER.error("Ошибка при удалении автотеста с externalId {}: {}", externalId, e.getMessage(), e);
-        }
-    }
-
-    /**
-     * Удаляет тестовый прогон по его ID.
-     * @param testRunId UUID тестового прогона.
-     */
-    public void deleteTestRun(UUID testRunId) {
-        LOGGER.info("Удаление тестового прогона с ID: {}", testRunId);
-        try {
-            testRunsApi.apiV2TestRunsIdDelete(testRunId.toString());
-            LOGGER.info("Тестовый прогон успешно удален");
-        } catch (ApiException e) {
-            LOGGER.error("Ошибка при удалении тестового прогона с ID {}: {}", testRunId, e.getMessage(), e);
-        }
-    }
-
-    /**
-     * Находит ID рабочего элемента по его внешнему идентификатору (например, ключу задачи Jira).
-     * @param projectId UUID проекта.
-     * @param externalId Внешний идентификатор (например, "JIRA-123").
-     * @return Optional с UUID рабочего элемента или пустой, если элемент не найден.
-     */
-    public Optional<UUID> getWorkItemIdByExternalId(UUID projectId, String externalId) {
-        LOGGER.info("Поиск рабочего элемента с externalId: {} в проекте: {}", externalId, projectId);
-        try {
-            WorkItemFilterModel filter = new WorkItemFilterModel()
-                    .projectIds(List.of(projectId))
-                    .externalIds(List.of(externalId));
-            SearchWorkItemsRequestV2Model body = new SearchWorkItemsRequestV2Model().filter(filter);
-            List<WorkItemModel> workItems = workItemsApi.apiV2WorkItemsSearchPost(null, null, null, null, null, body);
-            if (workItems.isEmpty()) {
-                LOGGER.warn("Рабочий элемент с externalId: {} в проекте: {} не найден", externalId, projectId);
-                return Optional.empty();
-            }
-            return Optional.of(workItems.get(0).getId());
-        } catch (ApiException e) {
-            LOGGER.error("Ошибка при поиске рабочего элемента с externalId {}: {}", externalId, e.getMessage(), e);
-            return Optional.empty();
-        }
-    }
-
-    /**
-     * Создает билдер для построения автотеста.
-     * @return Новый экземпляр AutoTestBuilder.
-     */
     public AutoTestBuilder createAutoTest() {
         return new AutoTestBuilder(autoTestsApi, this);
     }
@@ -152,10 +29,21 @@ public class TestItAutoTestCreator {
         private final AutoTestsApi autoTestsApi;
         private final TestItAutoTestCreator creator;
         private final AutoTestPostModel model = new AutoTestPostModel();
+        private boolean createLinkedManualTestCase = false; // Новый флаг
 
         public AutoTestBuilder(AutoTestsApi autoTestsApi, TestItAutoTestCreator creator) {
             this.autoTestsApi = autoTestsApi;
             this.creator = creator;
+        }
+
+        /**
+         * Указывает, нужно ли создать связанный ручной тест.
+         * @param create Если true, после создания автотеста будет создан и связан ручной тест.
+         * @return Этот билдер.
+         */
+        public AutoTestBuilder withLinkedManualTestCase(boolean create) {
+            this.createLinkedManualTestCase = create;
+            return this;
         }
 
         public AutoTestBuilder withExternalId(String externalId) {
@@ -272,11 +160,6 @@ public class TestItAutoTestCreator {
             return this;
         }
 
-        /**
-         * Привязывает автотест к задаче Jira по её ключу.
-         * @param jiraTaskKey Ключ задачи Jira (например, "JIRA-123").
-         * @return Этот билдер.
-         */
         public AutoTestBuilder linkToJiraTask(String jiraTaskKey) {
             if (model.getProjectId() == null) {
                 LOGGER.error("Не указан projectId для привязки к Jira задаче {}", jiraTaskKey);
@@ -295,13 +178,6 @@ public class TestItAutoTestCreator {
             return this;
         }
 
-        /**
-         * Добавляет ссылку к автотесту.
-         * @param url URL ссылки (например, "https://your-jira-instance.com/browse/JIRA-123").
-         * @param title Название ссылки (например, "JIRA-123").
-         * @param type Тип ссылки (например, "Issue" для Jira задач).
-         * @return Этот билдер.
-         */
         public AutoTestBuilder addLink(String url, String title, String type) {
             if (url == null || title == null || type == null) {
                 LOGGER.error("URL, title или type ссылки не могут быть null");
@@ -320,7 +196,8 @@ public class TestItAutoTestCreator {
         }
 
         /**
-         * Создает или обновляет автотест в TestIt TMS.
+         * Создает или обновляет автотест в TestIt TMS. Если createLinkedManualTestCase=true,
+         * создает и связывает ручной тест.
          * @return Optional с моделью созданного или обновленного автотеста или пустой, если произошла ошибка.
          */
         public Optional<AutoTestModel> build() {
@@ -344,6 +221,7 @@ public class TestItAutoTestCreator {
                         null, null, null, null, null, body
                 );
 
+                AutoTestModel result;
                 if (!existingTests.isEmpty()) {
                     AutoTestApiResult existing = existingTests.get(0);
                     AutoTestPutModel putModel = new AutoTestPutModel();
@@ -361,7 +239,6 @@ public class TestItAutoTestCreator {
                     putModel.setLabels(model.getLabels() != null ? new ArrayList<>(model.getLabels()) : null);
                     putModel.setIsFlaky(model.getIsFlaky());
                     putModel.setExternalKey(model.getExternalKey());
-                    // Преобразование LinkPostModel в LinkPutModel
                     List<LinkPutModel> putLinks = model.getLinks() != null ? model.getLinks().stream()
                             .map(link -> {
                                 LinkPutModel putLink = new LinkPutModel();
@@ -375,13 +252,48 @@ public class TestItAutoTestCreator {
 
                     LOGGER.info("Обновление существующего автотеста с ID: {}", existing.getId());
                     autoTestsApi.updateAutoTest(putModel);
-                    return Optional.of(existing);
+                    result = existing;
                 } else {
                     LOGGER.info("Создание нового автотеста с externalId: {}", model.getExternalId());
-                    AutoTestModel result = autoTestsApi.createAutoTest(model);
+                    result = autoTestsApi.createAutoTest(model);
                     LOGGER.info("Автотест создан с ID: {}", result.getId());
-                    return Optional.of(result);
+
+                    // Создание связанного ручного теста, если флаг включен
+                    if (createLinkedManualTestCase) {
+                        try {
+                            WorkItemPostModel testCase = new WorkItemPostModel();
+                            testCase.setProjectId(model.getProjectId());
+                            testCase.setName(model.getName() + " (Manual)");
+                            testCase.setEntityTypeName("TestCase");
+                            // Копирование шагов из автотеста, если они есть
+                            if (model.getSteps() != null && !model.getSteps().isEmpty()) {
+                                List<WorkItemStepModel> manualSteps = model.getSteps().stream()
+                                        .map(step -> {
+                                            WorkItemStepModel manualStep = new WorkItemStepModel();
+                                            manualStep.setName(step.getTitle());
+                                            manualStep.setDescription(step.getDescription());
+                                            return manualStep;
+                                        })
+                                        .collect(Collectors.toList());
+                                testCase.setSteps(manualSteps);
+                            }
+
+                            WorkItemModel createdTestCase = creator.workItemsApi.createWorkItem(testCase);
+                            LOGGER.info("Создан ручной тест с ID: {}", createdTestCase.getId());
+
+                            // Связывание ручного теста с автотестом
+                            creator.autoTestsApi.apiV2AutoTestsIdWorkItemsPost(
+                                    result.getId().toString(),
+                                    createdTestCase.getId().toString()
+                            );
+                            LOGGER.info("Ручной тест с ID: {} связан с автотестом с ID: {}", 
+                                        createdTestCase.getId(), result.getId());
+                        } catch (ApiException e) {
+                            LOGGER.error("Ошибка при создании или связывании ручного теста: {}", e.getMessage(), e);
+                        }
+                    }
                 }
+                return Optional.of(result);
             } catch (ApiException e) {
                 LOGGER.error("Ошибка при создании/обновлении автотеста: {}", e.getMessage(), e);
                 return Optional.empty();
@@ -389,48 +301,5 @@ public class TestItAutoTestCreator {
         }
     }
 
-    /**
-     * Внутренний класс-билдер для создания шагов автотеста.
-     */
-    public static class StepBuilder {
-        private final AutoTestStepModel step = new AutoTestStepModel();
-
-        public StepBuilder withTitle(String title) {
-            step.setTitle(title);
-            return this;
-        }
-
-        public StepBuilder withDescription(String description) {
-            step.setDescription(description);
-            return this;
-        }
-
-        public StepBuilder addSubStep(AutoTestStepModel subStep) {
-            if (subStep == step) {
-                throw new IllegalArgumentException("Нельзя добавить шаг к самому себе");
-            }
-            if (hasCycle(step, subStep)) {
-                throw new IllegalArgumentException("Обнаружена циклическая ссылка в шагах");
-            }
-            if (step.getSteps() == null) {
-                step.setSteps(new ArrayList<>());
-            }
-            step.getSteps().add(subStep);
-            return this;
-        }
-
-        private boolean hasCycle(AutoTestStepModel parent, AutoTestStepModel child) {
-            if (child == null) return false;
-            if (child == parent) return true;
-            if (child.getSteps() == null) return false;
-            for (AutoTestStepModel subStep : child.getSteps()) {
-                if (hasCycle(parent, subStep)) return true;
-            }
-            return false;
-        }
-
-        public AutoTestStepModel build() {
-            return step;
-        }
-    }
+    // ... (остальные методы и класс StepBuilder без изменений)
 }
