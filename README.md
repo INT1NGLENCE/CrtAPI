@@ -1,26 +1,32 @@
-
-
 import ru.testit.client.api.AutoTestsApi;
+import ru.testit.client.api.TestRunsApi;
 import ru.testit.client.invoker.ApiClient;
 import ru.testit.client.invoker.ApiException;
 import ru.testit.client.invoker.Configuration;
+import ru.testit.client.model.AutoTestFilterModel;
 import ru.testit.client.model.AutoTestPostModel;
+import ru.testit.client.model.AutoTestPutModel;
 import ru.testit.client.model.AutoTestStepModel;
 import ru.testit.client.model.LabelPostModel;
 import ru.testit.client.model.AutoTestModel;
+import ru.testit.client.model.CreateEmptyTestRunApiModel;
+import ru.testit.client.model.TestRunV2ApiResult;
 import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
 
 import java.util.ArrayList;
 import java.util.List;
+import java.util.Objects;
 import java.util.UUID;
+import java.util.stream.Collectors;
 
 /**
- * Класс для удобного создания автотестов в TestIt TMS.
+ * Класс для удобного создания автотестов и тестовых прогонов в TestIt TMS.
  */
 public class TestItAutoTestCreator {
     private static final Logger LOGGER = LoggerFactory.getLogger(TestItAutoTestCreator.class);
     private final AutoTestsApi autoTestsApi;
+    private final TestRunsApi testRunsApi;
 
     /**
      * Конструктор, инициализирующий API-клиент для TestIt TMS.
@@ -37,6 +43,25 @@ public class TestItAutoTestCreator {
         defaultClient.setApiKeyPrefix("PrivateToken");
         defaultClient.setApiKey(privateToken);
         autoTestsApi = new AutoTestsApi(defaultClient);
+        testRunsApi = new TestRunsApi(defaultClient);
+    }
+
+    /**
+     * Создает тестовый прогон для проекта.
+     * @param projectId UUID проекта.
+     * @param name Название прогона.
+     * @return UUID созданного прогона.
+     * @throws ApiException Если запрос к API завершился ошибкой.
+     */
+    public UUID createTestRun(UUID projectId, String name) throws ApiException {
+        LOGGER.info("Создание тестового прогона для проекта {} с названием {}", projectId, name);
+        CreateEmptyTestRunApiModel model = new CreateEmptyTestRunApiModel();
+        model.setProjectId(projectId);
+        model.setName(name);
+        TestRunV2ApiResult response = testRunsApi.createEmpty(model);
+        testRunsApi.startTestRun(response.getId());
+        LOGGER.info("Создан тестовый прогон с ID: {}", response.getId());
+        return response.getId();
     }
 
     /**
@@ -114,7 +139,7 @@ public class TestItAutoTestCreator {
          * @return Этот билдер.
          */
         public AutoTestBuilder withSteps(List<AutoTestStepModel> steps) {
-            model.setSteps(steps);
+            model.setSteps(steps != null ? new ArrayList<>(steps) : null);
             return this;
         }
 
@@ -128,10 +153,12 @@ public class TestItAutoTestCreator {
             AutoTestStepModel step = new AutoTestStepModel();
             step.setTitle(title);
             step.setDescription(description);
-            if (model.getSteps() == null) {
-                model.setSteps(new ArrayList<>());
+            List<AutoTestStepModel> steps = model.getSteps();
+            if (steps == null || steps.getClass().getName().contains("Unmodifiable")) {
+                steps = new ArrayList<>();
+                model.setSteps(steps);
             }
-            model.getSteps().add(step);
+            steps.add(step);
             return this;
         }
 
@@ -141,7 +168,7 @@ public class TestItAutoTestCreator {
          * @return Этот билдер.
          */
         public AutoTestBuilder withSetup(List<AutoTestStepModel> setup) {
-            model.setSetup(setup);
+            model.setSetup(setup != null ? new ArrayList<>(setup) : null);
             return this;
         }
 
@@ -155,10 +182,12 @@ public class TestItAutoTestCreator {
             AutoTestStepModel step = new AutoTestStepModel();
             step.setTitle(title);
             step.setDescription(description);
-            if (model.getSetup() == null) {
-                model.setSetup(new ArrayList<>());
+            List<AutoTestStepModel> setup = model.getSetup();
+            if (setup == null || setup.getClass().getName().contains("Unmodifiable")) {
+                setup = new ArrayList<>();
+                model.setSetup(setup);
             }
-            model.getSetup().add(step);
+            setup.add(step);
             return this;
         }
 
@@ -168,7 +197,7 @@ public class TestItAutoTestCreator {
          * @return Этот билдер.
          */
         public AutoTestBuilder withTeardown(List<AutoTestStepModel> teardown) {
-            model.setTeardown(teardown);
+            model.setTeardown(teardown != null ? new ArrayList<>(teardown) : null);
             return this;
         }
 
@@ -182,10 +211,12 @@ public class TestItAutoTestCreator {
             AutoTestStepModel step = new AutoTestStepModel();
             step.setTitle(title);
             step.setDescription(description);
-            if (model.getTeardown() == null) {
-                model.setTeardown(new ArrayList<>());
+            List<AutoTestStepModel> teardown = model.getTeardown();
+            if (teardown == null || teardown.getClass().getName().contains("Unmodifiable")) {
+                teardown = new ArrayList<>();
+                model.setTeardown(teardown);
             }
-            model.getTeardown().add(step);
+            teardown.add(step);
             return this;
         }
 
@@ -215,7 +246,7 @@ public class TestItAutoTestCreator {
          * @return Этот билдер.
          */
         public AutoTestBuilder withLabels(List<LabelPostModel> labels) {
-            model.setLabels(labels);
+            model.setLabels(labels != null ? new ArrayList<>(labels) : null);
             return this;
         }
 
@@ -255,8 +286,19 @@ public class TestItAutoTestCreator {
         }
 
         /**
-         * Создает автотест в TestIt TMS.
-         * @return Модель созданного автотеста (AutoTestModel).
+         * Устанавливает список ID рабочих элементов для привязки к задачам (например, Jira).
+         * @param workItemIds Список ID рабочих элементов.
+         * @return Этот билдер.
+         */
+        public AutoTestBuilder withWorkItemIds(List<String> workItemIds) {
+            model.setWorkItemIds(workItemIds);
+            return this;
+        }
+
+        /**
+         * Создает или обновляет автотест в TestIt TMS.
+         * Если автотест с таким externalId существует, обновляет его; иначе создает новый.
+         * @return Модель созданного или обновленного автотеста (AutoTestModel).
          * @throws ApiException Если запрос к API завершился ошибкой.
          */
         public AutoTestModel build() throws ApiException {
@@ -264,14 +306,45 @@ public class TestItAutoTestCreator {
                 LOGGER.error("Отсутствуют обязательные поля: externalId, projectId, name");
                 throw new IllegalStateException("Required fields are missing: externalId, projectId, name");
             }
-            LOGGER.info("Создание автотеста с externalId: {}", model.getExternalId());
-            try {
+
+            // Поиск существующего автотеста
+            AutoTestFilterModel filter = new AutoTestFilterModel()
+                    .externalIds(List.of(model.getExternalId()))
+                    .projectIds(List.of(model.getProjectId()));
+            List<AutoTestModel> existingTests = autoTestsApi.apiV2AutoTestsSearchPost(
+                    null, null, null, null, null,
+                    new ru.testit.client.model.SearchAutoTestsQueryIncludesModel().filter(filter)
+            );
+
+            if (!existingTests.isEmpty()) {
+                // Обновление существующего автотеста
+                AutoTestModel existing = existingTests.get(0);
+                AutoTestPutModel putModel = new AutoTestPutModel();
+                putModel.setId(existing.getId());
+                putModel.setExternalId(model.getExternalId());
+                putModel.setProjectId(model.getProjectId());
+                putModel.setName(model.getName());
+                putModel.setNamespace(model.getNamespace());
+                putModel.setClassname(model.getClassname());
+                putModel.setSteps(model.getSteps() != null ? new ArrayList<>(model.getSteps()) : null);
+                putModel.setSetup(model.getSetup() != null ? new ArrayList<>(model.getSetup()) : null);
+                putModel.setTeardown(model.getTeardown() != null ? new ArrayList<>(model.getTeardown()) : null);
+                putModel.setTitle(model.getTitle());
+                putModel.setDescription(model.getDescription());
+                putModel.setLabels(model.getLabels() != null ? new ArrayList<>(model.getLabels()) : null);
+                putModel.setIsFlaky(model.getIsFlaky());
+                putModel.setExternalKey(model.getExternalKey());
+                putModel.setWorkItemIds(model.getWorkItemIds());
+
+                LOGGER.info("Обновление существующего автотеста с ID: {}", existing.getId());
+                autoTestsApi.updateAutoTest(putModel);
+                return existing; // Возвращаем существующий, так как обновление не возвращает модель
+            } else {
+                // Создание нового автотеста
+                LOGGER.info("Создание нового автотеста с externalId: {}", model.getExternalId());
                 AutoTestModel result = autoTestsApi.createAutoTest(model);
-                LOGGER.info("Автотест успешно создан с ID: {}", result.getId());
+                LOGGER.info("Автотест создан с ID: {}", result.getId());
                 return result;
-            } catch (ApiException e) {
-                LOGGER.error("Ошибка при создании автотеста: {}", e.getMessage(), e);
-                throw e;
             }
         }
     }
@@ -306,8 +379,15 @@ public class TestItAutoTestCreator {
          * Добавляет подшаг к текущему шагу.
          * @param subStep Подшаг (AutoTestStepModel).
          * @return Этот билдер.
+         * @throws IllegalArgumentException Если подшаг содержит циклическую ссылку.
          */
         public StepBuilder addSubStep(AutoTestStepModel subStep) {
+            if (subStep == step) {
+                throw new IllegalArgumentException("Нельзя добавить шаг к самому себе");
+            }
+            if (hasCycle(step, subStep)) {
+                throw new IllegalArgumentException("Обнаружена циклическая ссылка в шагах");
+            }
             if (step.getSteps() == null) {
                 step.setSteps(new ArrayList<>());
             }
@@ -316,9 +396,30 @@ public class TestItAutoTestCreator {
         }
 
         /**
+         * Проверяет наличие циклической ссылки в иерархии шагов.
+         * @param parent Родительский шаг.
+         * @param child Проверяемый подшаг.
+         * @return true, если есть цикл, false иначе.
+         */
+        private boolean hasCycle(AutoTestStepModel parent, AutoTestStepModel child) {
+            if (child == null) return false;
+            if (child == parent) return true;
+            if (child.getSteps() == null) return false;
+            for (AutoTestStepModel subStep : child.getSteps()) {
+                if (hasCycle(parent, subStep)) return true;
+            }
+            return false;
+        }
+
+        /**
          * Создает модель шага.
          * @return Модель шага (AutoTestStepModel).
          */
+        public AutoTestStepModel build() {
+            return step;
+        }
+    }
+}
         public AutoTestStepModel build() {
             return step;
         }
