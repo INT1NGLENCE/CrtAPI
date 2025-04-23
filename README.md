@@ -11,7 +11,9 @@ import org.slf4j.LoggerFactory;
 import java.util.ArrayList;
 import java.util.List;
 import java.util.Optional;
+import java.util.Set;
 import java.util.UUID;
+import java.util.stream.Collectors;
 
 /**
  * Класс для удобного создания, обновления и удаления автотестов и тестовых прогонов в TestIt TMS.
@@ -30,7 +32,7 @@ public class TestItAutoTestCreator {
     public TestItAutoTestCreator(String tmsAddress, String privateToken) {
         LOGGER.info("Инициализация TestItAutoTestCreator с адресом: {}", tmsAddress);
         if (tmsAddress == null || privateToken == null) {
-            throw new IllegalArgumentException("Адрес TMS и токен не могут быть null");
+            throw new IllegalArgumentException W("Адрес TMS и токен не могут быть null");
         }
         ApiClient defaultClient = Configuration.getDefaultApiClient();
         defaultClient.setBasePath(tmsAddress);
@@ -71,12 +73,18 @@ public class TestItAutoTestCreator {
     public void deleteAutoTestByExternalId(String externalId, UUID projectId) {
         LOGGER.info("Поиск автотеста с externalId: {} в проекте: {}", externalId, projectId);
         try {
-            AutoTestFilterModel filter = new AutoTestFilterModel()
-                    .externalIds(List.of(externalId))
-                    .projectIds(List.of(projectId));
-            List<AutoTestModel> existingTests = autoTestsApi.apiV2AutoTestsSearchPost(
-                    null, null, null, null, null,
-                    new SearchAutoTestsQueryIncludesModel().filter(filter)
+            AutoTestFilterApiModel filter = new AutoTestFilterApiModel();
+            filter.setExternalIds(Set.of(externalId));
+            filter.setProjectIds(Set.of(projectId.toString()));
+            AutoTestSearchIncludeApiModel includes = new AutoTestSearchIncludeApiModel()
+                    .includeLabels(true)
+                    .includeSteps(true)
+                    .includeLinks(true);
+            AutoTestSearchApiModel body = new AutoTestSearchApiModel()
+                    .filter(filter)
+                    .includes(includes);
+            List<AutoTestApiResult> existingTests = autoTestsApi.apiV2AutoTestsSearchPost(
+                    null, null, null, null, null, body
             );
             if (!existingTests.isEmpty()) {
                 String id = existingTests.get(0).getId().toString();
@@ -203,7 +211,7 @@ public class TestItAutoTestCreator {
             step.setTitle(title);
             step.setDescription(description);
             List<AutoTestStepModel> setup = model.getSetup();
-            if (setup == null || steps.getClass().getName().contains("Unmodifiable")) {
+            if (setup == null || setup.getClass().getName().contains("Unmodifiable")) {
                 setup = new ArrayList<>();
                 model.setSetup(setup);
             }
@@ -322,16 +330,22 @@ public class TestItAutoTestCreator {
             }
 
             try {
-                AutoTestFilterModel filter = new AutoTestFilterModel()
-                        .externalIds(List.of(model.getExternalId()))
-                        .projectIds(List.of(model.getProjectId()));
-                List<AutoTestModel> existingTests = autoTestsApi.apiV2AutoTestsSearchPost(
-                        null, null, null, null, null,
-                        new SearchAutoTestsQueryIncludesModel().filter(filter)
+                AutoTestFilterApiModel filter = new AutoTestFilterApiModel();
+                filter.setExternalIds(Set.of(model.getExternalId()));
+                filter.setProjectIds(Set.of(model.getProjectId().toString()));
+                AutoTestSearchIncludeApiModel includes = new AutoTestSearchIncludeApiModel()
+                        .includeLabels(true)
+                        .includeSteps(true)
+                        .includeLinks(true);
+                AutoTestSearchApiModel body = new AutoTestSearchApiModel()
+                        .filter(filter)
+                        .includes(includes);
+                List<AutoTestApiResult> existingTests = autoTestsApi.apiV2AutoTestsSearchPost(
+                        null, null, null, null, null, body
                 );
 
                 if (!existingTests.isEmpty()) {
-                    AutoTestModel existing = existingTests.get(0);
+                    AutoTestApiResult existing = existingTests.get(0);
                     AutoTestPutModel putModel = new AutoTestPutModel();
                     putModel.setId(existing.getId());
                     putModel.setExternalId(model.getExternalId());
@@ -345,10 +359,19 @@ public class TestItAutoTestCreator {
                     putModel.setTitle(model.getTitle());
                     putModel.setDescription(model.getDescription());
                     putModel.setLabels(model.getLabels() != null ? new ArrayList<>(model.getLabels()) : null);
-                    putModel.setLinks(model.getLinks() != null ? new ArrayList<>(model.getLinks()) : null);
                     putModel.setIsFlaky(model.getIsFlaky());
                     putModel.setExternalKey(model.getExternalKey());
-                    putModel.setWorkItemIds(model.getWorkItemIds());
+                    // Преобразование LinkPostModel в LinkPutModel
+                    List<LinkPutModel> putLinks = model.getLinks() != null ? model.getLinks().stream()
+                            .map(link -> {
+                                LinkPutModel putLink = new LinkPutModel();
+                                putLink.setUrl(link.getUrl());
+                                putLink.setTitle(link.getTitle());
+                                putLink.setType(link.getType());
+                                return putLink;
+                            })
+                            .collect(Collectors.toList()) : null;
+                    putModel.setLinks(putLinks);
 
                     LOGGER.info("Обновление существующего автотеста с ID: {}", existing.getId());
                     autoTestsApi.updateAutoTest(putModel);
